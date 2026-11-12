@@ -1,36 +1,16 @@
 
 import { useEffect, useState } from "react";
 import {
-  LayoutDashboard,
-  CalendarDays,
-  Users,
-  BriefcaseBusiness,
-  Settings,
-  CreditCard,
-  Bell,
-  Search,
-  Plus,
-  Menu,
-  X,
-  LogOut,
-  TrendingUp,
-  Clock,
-  CheckCircle,
-  AlertCircle,
-  Building2,
-  ArrowUpRight,
-  Loader2,
+  ArrowRight, ArrowUpRight, CalendarDays, Check, CheckCircle2,
+  ChevronDown, Clock3, CreditCard, LayoutDashboard, Menu,
+  ShieldCheck, Sparkles, Users, BriefcaseBusiness, Settings,
+  LogOut, X, Loader2
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import "./styles.css";
 
-type View =
-  | "Overview"
-  | "Bookings"
-  | "Services"
-  | "Customers"
-  | "Billing"
-  | "Settings";
+type Screen = "home" | "login" | "register" | "dashboard";
+type Section = "Overview" | "Bookings" | "Services" | "Customers" | "Billing" | "Settings";
 
 interface Business {
   id: string;
@@ -38,748 +18,494 @@ interface Business {
   slug?: string;
 }
 
-interface Booking {
-  id: string;
-  appointment_date?: string;
-  status?: string;
-  payment_status?: string;
-  customer_name?: string;
-  service_name?: string;
-}
+const features = [
+  {
+    icon: CalendarDays,
+    title: "Appointment management",
+    description: "Organise appointments, manage availability and keep every booking in one place."
+  },
+  {
+    icon: BriefcaseBusiness,
+    title: "Service management",
+    description: "Create services, set prices and durations, and keep your offerings up to date."
+  },
+  {
+    icon: Users,
+    title: "Customer management",
+    description: "Keep customer information and appointment history organised."
+  },
+  {
+    icon: LayoutDashboard,
+    title: "Business dashboard",
+    description: "See your bookings and business activity through one clear workspace."
+  },
+  {
+    icon: ShieldCheck,
+    title: "Workspace security",
+    description: "Separate business workspaces with account-based access controls."
+  },
+  {
+    icon: CreditCard,
+    title: "Subscription management",
+    description: "Prepare for monthly or yearly plans as your business grows."
+  }
+];
 
-const navigation = [
-  { name: "Overview", icon: LayoutDashboard },
-  { name: "Bookings", icon: CalendarDays },
-  { name: "Services", icon: BriefcaseBusiness },
-  { name: "Customers", icon: Users },
-  { name: "Billing", icon: CreditCard },
-  { name: "Settings", icon: Settings },
-] as const;
+const industries = [
+  "Salons & beauty studios",
+  "Barbershops",
+  "Cleaning companies",
+  "Plumbing services",
+  "Electrical services",
+  "AC repair & maintenance"
+];
 
 export default function App() {
-  const [view, setView] = useState<View>("Overview");
+  const [screen, setScreen] = useState<Screen>("home");
+  const [section, setSection] = useState<Section>("Overview");
+  const [user, setUser] = useState<any>(null);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [activeBusiness, setActiveBusiness] = useState("");
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [bookings, setBookings] = useState<any[]>([]);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [businessName, setBusinessName] = useState("");
+  const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [userEmail, setUserEmail] = useState("");
-  const [error, setError] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [message, setMessage] = useState("");
+  const [authReady, setAuthReady] = useState(false);
 
-  const currentBusiness = businesses.find(
-    (business) => business.id === activeBusiness
-  );
+  const currentBusiness = businesses.find(b => b.id === activeBusiness);
 
   useEffect(() => {
-    let mounted = true;
-
-    async function loadWorkspace() {
-      if (!supabase) {
-        if (mounted) {
-          setLoading(false);
-          setError(
-            "Supabase is not configured. Add your Supabase environment variables in Render."
-          );
-        }
-        return;
-      }
-
-      try {
-        const {
-          data: { user },
-          error: authError,
-        } = await supabase.auth.getUser();
-
-        if (authError) throw authError;
-
-        if (!user) {
-          if (mounted) {
-            setLoading(false);
-            setError("Please sign in through your Supabase account.");
-          }
-          return;
-        }
-
-        if (mounted) setUserEmail(user.email || "");
-
-        const { data, error: businessError } = await supabase
-          .from("business_members")
-          .select("business_id, businesses(id, name, slug)")
-          .eq("user_id", user.id);
-
-        if (businessError) throw businessError;
-
-        const foundBusinesses = (data || [])
-          .map((item: any) => item.businesses)
-          .filter(Boolean) as Business[];
-
-        if (mounted) {
-          setBusinesses(foundBusinesses);
-
-          if (foundBusinesses.length > 0) {
-            setActiveBusiness(foundBusinesses[0].id);
-          }
-        }
-      } catch (err: any) {
-        if (mounted) {
-          setError(err.message || "Unable to load your workspace.");
-        }
-      } finally {
-        if (mounted) setLoading(false);
-      }
+    if (!supabase) {
+      setAuthReady(true);
+      return;
     }
 
-    loadWorkspace();
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+      setAuthReady(true);
+      if (data.session?.user) setScreen("dashboard");
+    });
 
-    return () => {
-      mounted = false;
-    };
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) setScreen("dashboard");
+      else setScreen("home");
+    });
+
+    return () => data.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    let mounted = true;
+    if (!user || !supabase) return;
 
-    async function loadBookings() {
-      if (!supabase || !activeBusiness) {
-        setBookings([]);
+    async function loadBusinesses() {
+      const { data, error } = await supabase!
+        .from("business_members")
+        .select("business_id, businesses(id, name, slug)")
+        .eq("user_id", user.id);
+
+      if (error) {
+        setMessage("Could not load your business workspaces: " + error.message);
         return;
       }
 
-      const { data, error: bookingError } = await supabase
+      const list = (data || [])
+        .map((row: any) => row.businesses)
+        .filter(Boolean) as Business[];
+
+      setBusinesses(list);
+      if (list.length && !activeBusiness) setActiveBusiness(list[0].id);
+    }
+
+    loadBusinesses();
+  }, [user]);
+
+  useEffect(() => {
+    if (!activeBusiness || !supabase) {
+      setBookings([]);
+      return;
+    }
+
+    async function loadBookings() {
+      const { data, error } = await supabase!
         .from("bookings")
         .select("*")
         .eq("business_id", activeBusiness)
         .order("appointment_date", { ascending: false })
-        .limit(10);
+        .limit(20);
 
-      if (!mounted) return;
-
-      if (bookingError) {
-        setError(bookingError.message);
+      if (error) {
+        setMessage("Bookings could not be loaded: " + error.message);
         return;
       }
-
-      setBookings((data || []) as Booking[]);
+      setBookings(data || []);
     }
 
     loadBookings();
-
-    return () => {
-      mounted = false;
-    };
   }, [activeBusiness]);
 
-  async function createWorkspace() {
-    const name = window.prompt("Enter your business name:");
-
-    if (!name?.trim() || !supabase) return;
-
-    setCreating(true);
-    setError("");
-
-    try {
-      const slug = name
-        .toLowerCase()
-        .trim()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
-
-      const { data, error: createError } = await supabase.rpc(
-        "create_business_workspace",
-        {
-          business_name: name.trim(),
-          business_slug: slug,
-        }
-      );
-
-      if (createError) throw createError;
-
-      const businessId =
-        typeof data === "string" ? data : data?.business_id || data?.id;
-
-      if (!businessId) {
-        throw new Error(
-          "Workspace creation returned no business ID. Check your database function."
-        );
-      }
-
-      const newBusiness = {
-        id: businessId,
-        name: name.trim(),
-        slug,
-      };
-
-      setBusinesses((previous) => [...previous, newBusiness]);
-      setActiveBusiness(businessId);
-    } catch (err: any) {
-      setError(err.message || "Could not create your workspace.");
-    } finally {
-      setCreating(false);
-    }
+  function goTo(target: Screen) {
+    setMessage("");
+    setMenuOpen(false);
+    setScreen(target);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function signOut() {
-    if (!supabase) return;
-
-    const { error: signOutError } = await supabase.auth.signOut();
-
-    if (signOutError) {
-      setError(signOutError.message);
+  async function submitAuth(event: React.FormEvent) {
+    event.preventDefault();
+    if (!supabase) {
+      setMessage("Supabase is not configured yet. Add your project URL and publishable key.");
       return;
     }
 
-    window.location.reload();
+    setBusy(true);
+    setMessage("");
+
+    try {
+      if (screen === "register") {
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+
+        if (data.session) {
+          setUser(data.user);
+          setMessage("Account created. Create your business workspace next.");
+          setScreen("dashboard");
+        } else {
+          setMessage("Registration received. Check your email to confirm your account, then log in.");
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        setUser(data.user);
+        setScreen("dashboard");
+      }
+    } catch (err: any) {
+      setMessage(err.message || "Authentication failed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  const totalBookings = bookings.length;
-  const pendingBookings = bookings.filter(
-    (booking) => booking.status === "pending"
-  ).length;
-  const confirmedBookings = bookings.filter(
-    (booking) => booking.status === "confirmed"
-  ).length;
-  const completedBookings = bookings.filter(
-    (booking) => booking.status === "completed"
-  ).length;
+  async function createBusiness(event: React.FormEvent) {
+    event.preventDefault();
+    if (!supabase || !businessName.trim()) return;
 
-  if (loading) {
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const slug = businessName.toLowerCase().trim()
+        .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+      const { data, error } = await supabase.rpc("create_business_workspace", {
+        business_name: businessName.trim(),
+        business_slug: slug
+      });
+
+      if (error) throw error;
+
+      const id = typeof data === "string" ? data : data?.business_id || data?.id;
+      if (!id) throw new Error("Workspace function returned no business ID.");
+
+      setBusinesses(previous => [...previous, { id, name: businessName.trim(), slug }]);
+      setActiveBusiness(id);
+      setBusinessName("");
+      setMessage("Your business workspace has been created.");
+    } catch (err: any) {
+      setMessage(err.message || "Could not create your workspace.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function logout() {
+    if (!supabase) return;
+    const { error } = await supabase.auth.signOut();
+    if (error) setMessage(error.message);
+    else {
+      setUser(null);
+      setBusinesses([]);
+      setActiveBusiness("");
+      setScreen("home");
+    }
+  }
+
+  if (!authReady) {
+    return <div className="loading-screen"><div className="loading-brand">SERVORA</div><Loader2 className="spin" /><p>Loading your experience...</p></div>;
+  }
+
+  if (screen === "home") {
     return (
-      <div className="loading-screen">
-        <div className="loading-brand">SERVORA</div>
-        <Loader2 className="spin" size={28} />
-        <p>Preparing your workspace...</p>
+      <div className="public-site">
+        <header className="site-header">
+          <a className="site-brand" href="#home" onClick={e => { e.preventDefault(); goTo("home"); }}>
+            <span className="site-brand-mark">S</span>
+            <span>SERVORA<small>BUSINESS MANAGEMENT</small></span>
+          </a>
+
+          <nav className={`site-nav ${menuOpen ? "site-nav-open" : ""}`}>
+            <a href="#features" onClick={() => setMenuOpen(false)}>Features</a>
+            <a href="#industries" onClick={() => setMenuOpen(false)}>Solutions</a>
+            <a href="#how-it-works" onClick={() => setMenuOpen(false)}>How it works</a>
+            <a href="#pricing" onClick={() => setMenuOpen(false)}>Pricing</a>
+            <a href="#contact" onClick={() => setMenuOpen(false)}>Contact</a>
+          </nav>
+
+          <div className="site-header-actions">
+            <button className="site-login" onClick={() => goTo("login")}>Log in</button>
+            <button className="gold-button" onClick={() => goTo("register")}>Get started <ArrowRight size={16}/></button>
+          </div>
+
+          <button className="site-menu-button" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle menu">
+            {menuOpen ? <X/> : <Menu/>}
+          </button>
+        </header>
+
+        <main id="home">
+          <section className="hero-section">
+            <div className="hero-copy">
+              <div className="hero-label"><Sparkles size={14}/> BUSINESS MANAGEMENT, REIMAGINED</div>
+              <h1>Run your business.<br/><span>Not after it.</span></h1>
+              <p className="hero-description">
+                A smarter way to manage appointments, customers and services.
+                Bring your daily business operations together in one organised workspace.
+              </p>
+              <div className="hero-actions">
+                <button className="gold-button hero-cta" onClick={() => goTo("register")}>Start your workspace <ArrowRight size={17}/></button>
+                <a className="secondary-cta" href="#features">Explore the platform <ArrowUpRight size={16}/></a>
+              </div>
+              <div className="hero-trust">
+                <span><Check size={14}/> Organised appointments</span>
+                <span><Check size={14}/> Business workspace</span>
+                <span><Check size={14}/> Customer records</span>
+              </div>
+            </div>
+
+            <div className="hero-visual">
+              <div className="hero-glow"/>
+              <div className="dashboard-preview">
+                <div className="preview-topbar">
+                  <div className="preview-brand"><span>S</span> SERVORA</div>
+                  <span className="preview-live"><i/> WORKSPACE PREVIEW</span>
+                </div>
+                <div className="preview-welcome">
+                  <div><small>BUSINESS OVERVIEW</small><h3>Your workspace</h3><p>Manage your day in one place.</p></div>
+                  <div className="preview-avatar">B</div>
+                </div>
+                <div className="preview-stats">
+                  <div><span>Appointments</span><strong>Manage</strong><CalendarDays/></div>
+                  <div><span>Customers</span><strong>Organise</strong><Users/></div>
+                  <div><span>Services</span><strong>Control</strong><BriefcaseBusiness/></div>
+                </div>
+                <div className="preview-calendar">
+                  <div className="preview-calendar-heading"><strong>Appointment management</strong><span>Workspace tools</span></div>
+                  <div className="preview-line"><i/><span>Booking overview</span><b>Organised</b></div>
+                  <div className="preview-line"><i/><span>Customer records</span><b>Connected</b></div>
+                  <div className="preview-line"><i/><span>Service catalogue</span><b>Manageable</b></div>
+                </div>
+                <div className="preview-footer"><ShieldCheck size={14}/> A dedicated workspace for your business</div>
+              </div>
+              <div className="floating-note"><span><CheckCircle2 size={16}/></span><div><b>One organised workspace</b><small>Bookings, services & customers</small></div></div>
+            </div>
+          </section>
+
+          <section className="trust-strip">
+            <p>BUILT FOR SERVICE-BASED BUSINESSES</p>
+            <div>{industries.slice(0, 4).map(item => <span key={item}>{item}</span>)}</div>
+          </section>
+
+          <section className="site-section features-section" id="features">
+            <div className="section-heading">
+              <div className="hero-label">THE SERVORA PLATFORM</div>
+              <h2>Everything your operations need.<br/><span>Nothing you don't.</span></h2>
+              <p>Tools that help service businesses stay organised, serve customers and manage their day.</p>
+            </div>
+            <div className="feature-grid">
+              {features.map(({ icon: Icon, title, description }) => (
+                <article className="feature-card" key={title}>
+                  <div className="feature-icon"><Icon size={22}/></div>
+                  <h3>{title}</h3>
+                  <p>{description}</p>
+                  <span className="feature-arrow"><ArrowUpRight size={17}/></span>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="site-section industries-section" id="industries">
+            <div className="industry-copy">
+              <div className="hero-label">MADE FOR YOUR INDUSTRY</div>
+              <h2>Different businesses.<br/><span>One organised platform.</span></h2>
+              <p>Whether you manage a salon, a cleaning team or a repair service, SERVORA gives your business its own workspace.</p>
+              <button className="gold-button" onClick={() => goTo("register")}>Create your workspace <ArrowRight size={16}/></button>
+            </div>
+            <div className="industry-list">
+              {industries.map((industry, index) => (
+                <div className="industry-item" key={industry}>
+                  <span>0{index + 1}</span><strong>{industry}</strong><ArrowUpRight size={17}/>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="site-section process-section" id="how-it-works">
+            <div className="section-heading">
+              <div className="hero-label">GET STARTED</div>
+              <h2>A clearer way to run your day.</h2>
+              <p>Start with your business workspace and build from there.</p>
+            </div>
+            <div className="process-grid">
+              <article><span>01</span><h3>Create an account</h3><p>Register securely with your email and create your owner account.</p></article>
+              <article><span>02</span><h3>Set up your business</h3><p>Create a workspace for your business and configure its services.</p></article>
+              <article><span>03</span><h3>Manage your operations</h3><p>Use your dashboard to organise bookings, customers and services.</p></article>
+            </div>
+          </section>
+
+          <section className="pricing-section site-section" id="pricing">
+            <div className="section-heading">
+              <div className="hero-label">SIMPLE SUBSCRIPTIONS</div>
+              <h2>Choose how you grow.</h2>
+              <p>Monthly and yearly subscription options are planned for SERVORA.</p>
+            </div>
+            <div className="pricing-card">
+              <div className="pricing-card-icon"><CreditCard size={23}/></div>
+              <h3>Flexible business plans</h3>
+              <p>Plan features and final subscription prices will be published when billing is configured.</p>
+              <button className="gold-button" onClick={() => goTo("register")}>Create an account <ArrowRight size={16}/></button>
+              <small>No payment is taken on this page.</small>
+            </div>
+          </section>
+
+          <section className="final-cta site-section" id="contact">
+            <div className="hero-label">YOUR NEXT CHAPTER STARTS HERE</div>
+            <h2>Give your business<br/>a better way to work.</h2>
+            <p>Create your SERVORA account and set up your business workspace.</p>
+            <button className="gold-button" onClick={() => goTo("register")}>Get started with SERVORA <ArrowRight size={17}/></button>
+          </section>
+        </main>
+
+        <footer className="site-footer">
+          <a className="site-brand" href="#home"><span className="site-brand-mark">S</span><span>SERVORA<small>BUSINESS MANAGEMENT</small></span></a>
+          <p>Business management made simpler.</p>
+          <div><a href="#features">Features</a><a href="#industries">Solutions</a><a href="#pricing">Pricing</a><a href="mailto:support@servora.com">Contact</a></div>
+          <small>© {new Date().getFullYear()} SERVORA. All rights reserved.</small>
+        </footer>
       </div>
     );
   }
 
-  if (!supabase || error.includes("Supabase is not configured")) {
+  if (screen === "login" || screen === "register") {
+    const registering = screen === "register";
     return (
-      <div className="loading-screen">
-        <div className="loading-brand">SERVORA</div>
-        <AlertCircle size={32} />
-        <h2>Configuration required</h2>
-        <p>{error}</p>
-        <p>
-          Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your Render
-          environment variables.
-        </p>
-      </div>
-    );
-  }
+      <div className="auth-page">
+        <button className="auth-back" onClick={() => goTo("home")}>← Back to SERVORA</button>
+        <div className="auth-card">
+          <div className="site-brand auth-brand"><span className="site-brand-mark">S</span><span>SERVORA<small>BUSINESS MANAGEMENT</small></span></div>
+          <div className="hero-label">{registering ? "START YOUR JOURNEY" : "WELCOME BACK"}</div>
+          <h1>{registering ? "Create your account." : "Welcome back."}</h1>
+          <p>{registering ? "Set up your owner account to create a business workspace." : "Log in to continue to your business workspace."}</p>
 
-  if (error.includes("Please sign in")) {
-    return (
-      <div className="loading-screen">
-        <div className="loading-brand">SERVORA</div>
-        <h2>Sign in required</h2>
-        <p>{error}</p>
-        <p>Sign in using your configured Supabase authentication page.</p>
+          {message && <div className="auth-message">{message}</div>}
+
+          <form onSubmit={submitAuth} className="auth-form">
+            <label>Email address</label>
+            <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com"/>
+            <label>Password</label>
+            <input type="password" required minLength={6} value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 6 characters"/>
+            <button className="gold-button auth-submit" disabled={busy}>
+              {busy ? <Loader2 className="spin" size={17}/> : registering ? "Create account" : "Log in"}
+              {!busy && <ArrowRight size={16}/>}
+            </button>
+          </form>
+
+          <div className="auth-switch">
+            {registering ? "Already have an account?" : "New to SERVORA?"}
+            <button onClick={() => { setMessage(""); setScreen(registering ? "login" : "register"); }}>
+              {registering ? "Log in" : "Create an account"}
+            </button>
+          </div>
+          <small className="auth-security"><ShieldCheck size={14}/> Your account is protected by Supabase authentication.</small>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="app-shell">
-      {menuOpen && (
-        <button
-          className="mobile-overlay"
-          aria-label="Close menu"
-          onClick={() => setMenuOpen(false)}
-        />
-      )}
-
-      <aside className={`sidebar ${menuOpen ? "sidebar-open" : ""}`}>
-        <div className="brand">
-          <div className="brand-mark">S</div>
-          <div>
-            <strong>SERVORA</strong>
-            <span>BUSINESS MANAGEMENT</span>
-          </div>
-          <button
-            className="mobile-close"
-            onClick={() => setMenuOpen(false)}
-            aria-label="Close navigation"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="workspace-label">WORKSPACE</div>
-
-        <select
-          className="workspace-select"
-          value={activeBusiness}
-          onChange={(event) => setActiveBusiness(event.target.value)}
-        >
-          {businesses.map((business) => (
-            <option key={business.id} value={business.id}>
-              {business.name}
-            </option>
-          ))}
+    <div className="dashboard-shell">
+      <aside className={`dashboard-sidebar ${menuOpen ? "dashboard-sidebar-open" : ""}`}>
+        <div className="site-brand"><span className="site-brand-mark">S</span><span>SERVORA<small>BUSINESS MANAGEMENT</small></span></div>
+        <div className="dashboard-label">YOUR WORKSPACE</div>
+        <select value={activeBusiness} onChange={e => setActiveBusiness(e.target.value)}>
+          {businesses.map(b => <option value={b.id} key={b.id}>{b.name}</option>)}
         </select>
-
-        <button
-          className="new-workspace"
-          onClick={createWorkspace}
-          disabled={creating}
-        >
-          <Plus size={16} />
-          {creating ? "Creating..." : "New workspace"}
-        </button>
-
-        <div className="sidebar-section-label">MENU</div>
-
-        <nav className="sidebar-nav">
-          {navigation.map((item) => {
-            const Icon = item.icon;
-
-            return (
-              <button
-                key={item.name}
-                className={`nav-item ${view === item.name ? "active" : ""}`}
-                onClick={() => {
-                  setView(item.name);
-                  setMenuOpen(false);
-                }}
-              >
-                <Icon size={19} />
-                <span>{item.name}</span>
-                {view === item.name && <span className="active-dot" />}
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="sidebar-bottom">
-          <div className="sidebar-help">
-            <div className="help-icon">✦</div>
-            <strong>Need assistance?</strong>
-            <p>We're here to help you grow your business.</p>
-            <a href="mailto:support@servora.com">Contact support</a>
-          </div>
-
-          <button className="logout-button" onClick={signOut}>
-            <LogOut size={18} />
-            Sign out
+        <div className="dashboard-label">MENU</div>
+        {(["Overview", "Bookings", "Services", "Customers", "Billing", "Settings"] as Section[]).map(item => (
+          <button key={item} className={`dashboard-nav-item ${section === item ? "selected" : ""}`} onClick={() => { setSection(item); setMenuOpen(false); }}>
+            {item === "Overview" ? <LayoutDashboard/> : item === "Bookings" ? <CalendarDays/> : item === "Services" ? <BriefcaseBusiness/> : item === "Customers" ? <Users/> : item === "Billing" ? <CreditCard/> : <Settings/>}
+            {item}
           </button>
-        </div>
+        ))}
+        <button className="dashboard-logout" onClick={logout}><LogOut/> Sign out</button>
       </aside>
 
-      <main className="main-area">
-        <header className="topbar">
-          <button
-            className="mobile-menu"
-            onClick={() => setMenuOpen(true)}
-            aria-label="Open navigation"
-          >
-            <Menu size={22} />
-          </button>
-
-          <div className="breadcrumb">
-            <span>Workspace</span>
-            <span>/</span>
-            <strong>{view}</strong>
-          </div>
-
-          <div className="topbar-actions">
-            <button
-              className="icon-button"
-              aria-label="Search"
-              onClick={() => window.alert("Search is coming soon.")}
-            >
-              <Search size={19} />
-            </button>
-
-            <button
-              className="icon-button notification-button"
-              aria-label="Notifications"
-              onClick={() => window.alert("No new notifications.")}
-            >
-              <Bell size={19} />
-            </button>
-
-            <div className="user-profile">
-              <div className="avatar">
-                {(userEmail.charAt(0) || "U").toUpperCase()}
-              </div>
-              <div className="user-info">
-                <strong>{userEmail.split("@")[0] || "User"}</strong>
-                <span>Workspace member</span>
-              </div>
-            </div>
-          </div>
+      <main className="dashboard-main">
+        <header className="dashboard-topbar">
+          <button className="site-menu-button" onClick={() => setMenuOpen(!menuOpen)}><Menu/></button>
+          <span>{currentBusiness?.name || "Your business"}</span>
+          <span className="dashboard-user">{user?.email}</span>
         </header>
 
-        <div className="page-content">
-          {error && (
-            <div className="error-message">
-              <AlertCircle size={17} />
-              <span>{error}</span>
-              <button onClick={() => setError("")}>Dismiss</button>
+        <div className="dashboard-content">
+          {message && <div className="auth-message">{message}</div>}
+
+          {!currentBusiness ? (
+            <div className="workspace-setup">
+              <div className="feature-icon"><BriefcaseBusiness size={25}/></div>
+              <div className="hero-label">YOUR BUSINESS WORKSPACE</div>
+              <h1>Create your business workspace.</h1>
+              <p>Tell us your business name to create a dedicated workspace. You can configure services and settings afterwards.</p>
+              <form onSubmit={createBusiness}>
+                <label>Business name</label>
+                <input value={businessName} onChange={e => setBusinessName(e.target.value)} required placeholder="e.g. Bright Cleaning Services"/>
+                <button className="gold-button" disabled={busy}>{busy ? "Creating..." : "Create workspace"} <ArrowRight size={16}/></button>
+              </form>
+              <small>If this fails, the database workspace function still needs to be installed.</small>
             </div>
-          )}
-
-          {!currentBusiness && (
-            <section className="empty-workspace">
-              <div className="empty-icon">
-                <Building2 size={30} />
-              </div>
-              <h1>Welcome to SERVORA</h1>
-              <p>
-                Create your first business workspace to start managing
-                appointments, services and customers.
-              </p>
-              <button
-                className="gold-button"
-                onClick={createWorkspace}
-                disabled={creating}
-              >
-                <Plus size={18} />
-                {creating ? "Creating..." : "Create business workspace"}
-              </button>
-            </section>
-          )}
-
-          {currentBusiness && (
+          ) : (
             <>
-              {view === "Overview" && (
+              <div className="dashboard-heading">
+                <div><div className="hero-label">BUSINESS WORKSPACE</div><h1>{section}</h1><p>Manage {currentBusiness.name} with SERVORA.</p></div>
+              </div>
+              {section === "Overview" && (
                 <>
-                  <section className="page-heading">
-                    <div>
-                      <div className="eyebrow">BUSINESS OVERVIEW</div>
-                      <h1>Welcome back.</h1>
-                      <p>
-                        Here's what's happening at{" "}
-                        <strong>{currentBusiness.name}</strong>.
-                      </p>
-                    </div>
-
-                    <button
-                      className="gold-button"
-                      onClick={() => setView("Bookings")}
-                    >
-                      <Plus size={17} />
-                      View bookings
-                    </button>
-                  </section>
-
-                  <section className="stats-grid">
-                    <StatCard
-                      title="Total bookings"
-                      value={String(totalBookings)}
-                      detail="Latest 10 records"
-                      icon={<CalendarDays />}
-                    />
-                    <StatCard
-                      title="Pending bookings"
-                      value={String(pendingBookings)}
-                      detail="Awaiting confirmation"
-                      icon={<Clock />}
-                    />
-                    <StatCard
-                      title="Confirmed bookings"
-                      value={String(confirmedBookings)}
-                      detail="Confirmed appointments"
-                      icon={<CheckCircle />}
-                    />
-                    <StatCard
-                      title="Completed bookings"
-                      value={String(completedBookings)}
-                      detail="Marked as completed"
-                      icon={<TrendingUp />}
-                    />
-                  </section>
-
-                  <section className="content-grid">
-                    <div className="panel bookings-panel">
-                      <div className="panel-heading">
-                        <div>
-                          <h2>Recent bookings</h2>
-                          <p>Your latest appointment activity</p>
-                        </div>
-                        <button
-                          className="text-button"
-                          onClick={() => setView("Bookings")}
-                        >
-                          View all <ArrowUpRight size={15} />
-                        </button>
-                      </div>
-
-                      <BookingTable bookings={bookings.slice(0, 5)} />
-                    </div>
-
-                    <div className="panel quick-panel">
-                      <div className="panel-heading">
-                        <div>
-                          <h2>Quick actions</h2>
-                          <p>Manage your workspace</p>
-                        </div>
-                      </div>
-
-                      <QuickAction
-                        icon={<CalendarDays />}
-                        title="Manage bookings"
-                        description="Review and update appointments"
-                        onClick={() => setView("Bookings")}
-                      />
-                      <QuickAction
-                        icon={<BriefcaseBusiness />}
-                        title="Manage services"
-                        description="Add or edit your services"
-                        onClick={() => setView("Services")}
-                      />
-                      <QuickAction
-                        icon={<Users />}
-                        title="Customers"
-                        description="View your customer records"
-                        onClick={() => setView("Customers")}
-                      />
-                      <QuickAction
-                        icon={<Settings />}
-                        title="Business settings"
-                        description="Configure your workspace"
-                        onClick={() => setView("Settings")}
-                      />
-                    </div>
-                  </section>
-
-                  <section className="panel note-panel">
-                    <div className="note-symbol">✦</div>
-                    <div>
-                      <h3>Your business, organised.</h3>
-                      <p>
-                        Use SERVORA to manage appointments, services and
-                        customer activity from one workspace.
-                      </p>
-                    </div>
-                  </section>
+                  <div className="dashboard-stats">
+                    <div><span>Bookings loaded</span><strong>{bookings.length}</strong><small>Latest 20 records</small></div>
+                    <div><span>Pending</span><strong>{bookings.filter(b => b.status === "pending").length}</strong><small>Awaiting action</small></div>
+                    <div><span>Confirmed</span><strong>{bookings.filter(b => b.status === "confirmed").length}</strong><small>Confirmed bookings</small></div>
+                    <div><span>Completed</span><strong>{bookings.filter(b => b.status === "completed").length}</strong><small>Completed bookings</small></div>
+                  </div>
+                  <DashboardPanel title="Recent bookings">
+                    {bookings.length ? <div className="table-wrapper"><table className="data-table"><thead><tr><th>Appointment</th><th>Status</th><th>Payment</th></tr></thead><tbody>{bookings.map(b => <tr key={b.id}><td>{b.appointment_date ? new Date(b.appointment_date).toLocaleString() : "Date not set"}</td><td>{b.status || "Pending"}</td><td>{b.payment_status || "Unpaid"}</td></tr>)}</tbody></table></div> : <p>No booking records have been created yet.</p>}
+                  </DashboardPanel>
                 </>
               )}
-
-              {view === "Bookings" && (
-                <PageSection
-                  title="Bookings"
-                  subtitle="Review and manage customer appointments."
-                >
-                  <BookingTable bookings={bookings} />
-                </PageSection>
-              )}
-
-              {view === "Services" && (
-                <PageSection
-                  title="Services"
-                  subtitle="Manage the services your business offers."
-                >
-                  <EmptyState
-                    icon={<BriefcaseBusiness />}
-                    title="Your services"
-                    description="Your service records will appear here once your services database is configured."
-                  />
-                </PageSection>
-              )}
-
-              {view === "Customers" && (
-                <PageSection
-                  title="Customers"
-                  subtitle="Keep track of your customer relationships."
-                >
-                  <EmptyState
-                    icon={<Users />}
-                    title="Customer management"
-                    description="Customer records will appear here when your customer profiles are connected."
-                  />
-                </PageSection>
-              )}
-
-              {view === "Billing" && (
-                <PageSection
-                  title="Billing and subscriptions"
-                  subtitle="Manage your SERVORA subscription."
-                >
-                  <div className="billing-card">
-                    <div className="billing-icon">
-                      <CreditCard size={25} />
-                    </div>
-                    <h2>Subscription management</h2>
-                    <p>
-                      Monthly and yearly subscription management can be
-                      connected here. No payment has been collected through
-                      this screen.
-                    </p>
-                    <span className="status-pill">Payment integration required</span>
-                  </div>
-                </PageSection>
-              )}
-
-              {view === "Settings" && (
-                <PageSection
-                  title="Settings"
-                  subtitle="Manage your business workspace."
-                >
-                  <div className="settings-card">
-                    <label>Business name</label>
-                    <input
-                      value={currentBusiness.name}
-                      readOnly
-                    />
-                    <label>Business workspace ID</label>
-                    <input value={currentBusiness.id} readOnly />
-                    <p>
-                      Business profile editing will be enabled after the
-                      business settings database is connected.
-                    </p>
-                  </div>
-                </PageSection>
+              {section !== "Overview" && (
+                <DashboardPanel title={section}>
+                  <p>{section === "Bookings" ? "Your business appointment records will appear here." : section === "Services" ? "Create and manage the services your business offers." : section === "Customers" ? "Your customer records will appear here." : section === "Billing" ? "Monthly and yearly subscription billing will appear here when payment processing is connected." : "Business profile and workspace settings."}</p>
+                  <p>Connect the corresponding database features to enable management in this section.</p>
+                </DashboardPanel>
               )}
             </>
           )}
         </div>
-
-        <footer className="app-footer">
-          <span>© {new Date().getFullYear()} SERVORA</span>
-          <span>Business management made simpler.</span>
-        </footer>
       </main>
     </div>
   );
 }
 
-function StatCard({
-  title,
-  value,
-  detail,
-  icon,
-}: {
-  title: string;
-  value: string;
-  detail: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <div className="stat-card">
-      <div className="stat-top">
-        <span>{title}</span>
-        <div className="stat-icon">{icon}</div>
-      </div>
-      <strong className="stat-value">{value}</strong>
-      <span className="stat-detail">{detail}</span>
-    </div>
-  );
-}
-
-function PageSection({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <>
-      <section className="page-heading">
-        <div>
-          <div className="eyebrow">SERVORA WORKSPACE</div>
-          <h1>{title}</h1>
-          <p>{subtitle}</p>
-        </div>
-      </section>
-      <section className="panel page-panel">{children}</section>
-    </>
-  );
-}
-
-function BookingTable({ bookings }: { bookings: Booking[] }) {
-  if (bookings.length === 0) {
-    return (
-      <EmptyState
-        icon={<CalendarDays />}
-        title="No bookings yet"
-        description="New customer appointments will appear here."
-      />
-    );
-  }
-
-  return (
-    <div className="table-wrapper">
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Customer</th>
-            <th>Appointment</th>
-            <th>Status</th>
-            <th>Payment</th>
-          </tr>
-        </thead>
-        <tbody>
-          {bookings.map((booking) => (
-            <tr key={booking.id}>
-              <td>
-                <strong>{booking.customer_name || "Customer"}</strong>
-                <small>{booking.service_name || "Service booking"}</small>
-              </td>
-              <td>
-                {booking.appointment_date
-                  ? new Date(booking.appointment_date).toLocaleString()
-                  : "Not specified"}
-              </td>
-              <td>
-                <span className={`status-pill ${booking.status || "pending"}`}>
-                  {booking.status || "Pending"}
-                </span>
-              </td>
-              <td>
-                <span className="payment-status">
-                  {booking.payment_status || "Unpaid"}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function QuickAction({
-  icon,
-  title,
-  description,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  onClick: () => void;
-}) {
-  return (
-    <button className="quick-action" onClick={onClick}>
-      <div className="quick-action-icon">{icon}</div>
-      <div>
-        <strong>{title}</strong>
-        <p>{description}</p>
-      </div>
-      <ArrowUpRight size={17} />
-    </button>
-  );
-}
-
-function EmptyState({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="empty-state">
-      <div className="empty-icon">{icon}</div>
-      <h3>{title}</h3>
-      <p>{description}</p>
-    </div>
-  );
+function DashboardPanel({ title, children }: { title: string; children: React.ReactNode }) {
+  return <section className="dashboard-panel"><h2>{title}</h2>{children}</section>;
 }
